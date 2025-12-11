@@ -1,0 +1,86 @@
+# Markets configuration for CLOB risk modelling
+# Each market entry includes Binance symbols and Uniswap pool information
+
+markets:
+  - name: ETH-PERP
+    binance_symbol_spot: ETHUSDT
+    binance_symbol_perp: ETHUSDT  # Futures API endpoint
+    uniswap_pool_id: "0x88e6a0c2ddd26feeb64f039a2c41296fcb3f5640"  # USDC/ETH 0.05% v3
+    uniswap_version: 3
+    category: "major"
+    oracle: "chainlink"
+    max_leverage: 20
+    
+  - name: BTC-PERP
+    binance_symbol_spot: BTCUSDT
+    binance_symbol_perp: BTCUSDT
+    uniswap_pool_id: "0x99ac8ca7087fa4a2a1fb6357269965a2014abc35"  # USDC/WBTC 0.05% v3
+    uniswap_version: 3
+    category: "major"
+    oracle: "chainlink"
+    max_leverage: 20
+    
+  - name: SOL-PERP
+    binance_symbol_spot: SOLUSDT
+    binance_symbol_perp: SOLUSDT
+    uniswap_pool_id: "0xbfd8137f7d1516d3ea5ca83523914859ec47f573"  # SOL/ETH 0.3% v3
+    uniswap_version: 3
+    category: "alt"
+    oracle: "pyth"
+    max_leverage: 10
+    
+  - name: ARB-PERP
+    binance_symbol_spot: ARBUSDT
+    binance_symbol_perp: ARBUSDT
+    uniswap_pool_id: "0xc31e54c7a869b9fcbecc14363cf510d1c41fa443"  # ARB/ETH 0.05% v3
+    uniswap_version: 3
+    category: "alt"
+    oracle: "chainlink"
+    max_leverage: 10
+    
+  - name: MATIC-PERP
+    binance_symbol_spot: MATICUSDT
+    binance_symbol_perp: MATICUSDT
+    uniswap_pool_id: "0x290a6a7460b308ee3f19023d2d00de604bcf5b42"  # MATIC/ETH 0.3% v3
+    uniswap_version: 3
+    category: "alt"
+    oracle: "chainlink"
+    max_leverage: 10
+
+# Risk parameters
+risk_parameters:
+  # Impact thresholds for liquidity scoring
+  max_price_impact_pct: 1.0  # Maximum acceptable price impact for liquidity depth
+  
+  # Volatility bands for scoring (annualized)
+  vol_bands:
+    very_low: 0.3
+    low: 0.5
+    medium: 0.8
+    high: 1.2
+    very_high: 1.5
+    
+  # OI to liquidity ratios by risk score
+  risk_to_max_oi_ratio:
+    1: 0.5    # Very safe - 50% of available liquidity
+    2: 0.35   # Safe - 35%
+    3: 0.25   # Medium - 25%
+    4: 0.15   # Risky - 15%
+    5: 0.07   # Very risky - 7%
+    
+  # Single position limits as % of max OI
+  single_position_limit_pct: 0.15
+  
+  # OI to daily volume warning threshold
+  oi_to_volume_warning_ratio: 5.0
+
+# API configurations
+api_config:
+  binance:
+    base_url: "https://api.binance.com"
+    futures_url: "https://fapi.binance.com"
+    rate_limit_per_minute: 1200
+    
+  uniswap:
+    v3_subgraph: "https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v3"
+    rate_limit_per_minute: 100

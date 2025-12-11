@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "clob-risk-modelling"
+version = "0.1.0"
+description = "Risk modelling framework for Perp CLOBs"
+authors = ["CLOB Risk Team"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.10"
+pandas = "^2.2.0"
+numpy = "^1.26.0"
+matplotlib = "^3.8.0"
+requests = "^2.31.0"
+pyyaml = "^6.0"
+jupyter = "^1.0.0"
+ipykernel = "^6.29.0"
+gql = {extras = ["requests"], version = "^3.5.0"}
+python-dotenv = "^1.0.0"
+seaborn = "^0.13.0"
+scipy = "^1.12.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
