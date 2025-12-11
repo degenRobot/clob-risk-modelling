@@ -43,7 +43,7 @@ fetch-data:
 	@mkdir -p data/raw/uniswap
 	@echo "Running data fetch scripts..."
 	@if [ -f risk-model/src/risk_model/binance_data.py ]; then \
-		poetry run python -c "from risk_model.src.risk_model.binance_data import fetch_all_data; fetch_all_data()"; \
+		cd risk-model && poetry run python -c "import sys; sys.path.append('src'); from risk_model.binance_data import fetch_all_data; fetch_all_data()"; \
 	else \
 		echo "⚠️  Data modules not yet implemented"; \
 	fi

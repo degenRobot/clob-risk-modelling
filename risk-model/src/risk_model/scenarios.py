@@ -7,6 +7,84 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+def simulate_liquidation_cascade(orderbook: Dict, liquidation_pct: float = 0.2) -> Dict[str, any]:
+    """Simulate liquidation cascade impact"""
+    if not orderbook or 'bids' not in orderbook or 'asks' not in orderbook:
+        return {"error": "Invalid orderbook data"}
+    
+    mid_price = (orderbook['bids'][0][0] + orderbook['asks'][0][0]) / 2
+    total_bid_depth = sum(p * s for p, s in orderbook['bids'][:50])
+    
+    # Simulate selling pressure from liquidations
+    liquidation_size = total_bid_depth * liquidation_pct
+    price_impact = 0
+    remaining_size = liquidation_size
+    
+    for price, size in orderbook['bids']:
+        if remaining_size <= 0:
+            break
+        filled = min(remaining_size, size * price)
+        remaining_size -= filled
+        price_impact = (mid_price - price) / mid_price * 100
+    
+    # Recovery calculation
+    recovery_bps = price_impact * 10  # Simplified recovery metric
+    
+    return {
+        "liquidation_pct": liquidation_pct * 100,
+        "price_impact_pct": price_impact,
+        "max_price_drop": price_impact,
+        "recovery_bps": recovery_bps,
+        "market_depth_1pct": total_bid_depth / 100
+    }
+
+def simulate_liquidity_gap(orderbook: Dict, gap_size: float, direction: str = 'down') -> Dict[str, any]:
+    """Simulate sudden liquidity gap"""
+    if not orderbook or 'bids' not in orderbook or 'asks' not in orderbook:
+        return {"error": "Invalid orderbook data"}
+    
+    orders = orderbook['bids'] if direction == 'down' else orderbook['asks']
+    mid_price = (orderbook['bids'][0][0] + orderbook['asks'][0][0]) / 2
+    gap_price = mid_price * (1 - gap_size) if direction == 'down' else mid_price * (1 + gap_size)
+    
+    unfilled_orders = 0
+    for price, size in orders:
+        if (direction == 'down' and price > gap_price) or (direction == 'up' and price < gap_price):
+            unfilled_orders += 1
+    
+    return {
+        "gap_size": gap_size,
+        "direction": direction,
+        "unfilled_orders": unfilled_orders,
+        "gap_price": gap_price,
+        "mid_price": mid_price
+    }
+
+def analyze_funding_stress(market_data: Dict, funding_rate: float, periods: int) -> Dict[str, any]:
+    """Analyze impact of sustained funding rates"""
+    position_value = 1000000  # $1M position
+    total_cost = position_value * funding_rate * periods
+    total_cost_pct = (total_cost / position_value) * 100
+    
+    return {
+        "funding_rate": funding_rate,
+        "periods": periods,
+        "total_cost": total_cost,
+        "total_cost_pct": total_cost_pct
+    }
+
+def generate_scenario_report(scenarios: Dict) -> pd.DataFrame:
+    """Generate summary report of scenarios"""
+    results = []
+    for name, scenario in scenarios.items():
+        if isinstance(scenario, dict) and 'error' not in scenario:
+            results.append({
+                'scenario': name,
+                'impact': scenario.get('price_impact_pct', 0),
+                'severity': scenario.get('severity', 'unknown')
+            })
+    return pd.DataFrame(results)
+
 def liquidation_impact_scenario(max_oi_usd: float, liq_curve: pd.DataFrame,
                               liq_fraction: float = 0.2) -> Dict[str, any]:
     """
@@ -252,3 +330,214 @@ def summarize_scenarios(scenarios: Dict[str, any]) -> pd.DataFrame:
         rows.append(row)
     
     return pd.DataFrame(rows)
+
+
+def calculate_manipulation_cost(orderbook: Dict, target_impact_pct: float, 
+                               side: str = 'up') -> Dict[str, any]:
+    """
+    Calculate cost to manipulate price by target percentage
+    
+    Args:
+        orderbook: Orderbook data with bids/asks
+        target_impact_pct: Desired price impact percentage
+        side: Direction of manipulation ('up' or 'down')
+        
+    Returns:
+        Dictionary with manipulation cost analysis
+    """
+    if side == 'up':
+        # Buy through asks to push price up
+        orders = orderbook.get('asks', [])
+    else:
+        # Sell through bids to push price down
+        orders = orderbook.get('bids', [])
+    
+    if not orders:
+        return {"error": "No orderbook data"}
+    
+    mid_price = (orderbook['bids'][0][0] + orderbook['asks'][0][0]) / 2
+    target_price = mid_price * (1 + target_impact_pct/100) if side == 'up' else mid_price * (1 - target_impact_pct/100)
+    
+    total_cost = 0
+    total_size = 0
+    orders_consumed = 0
+    
+    for price, size in orders:
+        if (side == 'up' and price > target_price) or (side == 'down' and price < target_price):
+            break
+            
+        order_cost = price * size
+        total_cost += order_cost
+        total_size += size
+        orders_consumed += 1
+    
+    avg_exec_price = total_cost / total_size if total_size > 0 else mid_price
+    actual_impact = abs((avg_exec_price - mid_price) / mid_price) * 100
+    
+    return {
+        "target_impact_pct": target_impact_pct,
+        "actual_impact_pct": actual_impact,
+        "manipulation_cost_usd": total_cost,
+        "size_required": total_size,
+        "orders_consumed": orders_consumed,
+        "avg_execution_price": avg_exec_price,
+        "mid_price": mid_price,
+        "side": side
+    }
+
+
+def analyze_manipulation_pnl(manipulation_cost: float, price_impact_pct: float,
+                           leverage: float, position_size_usd: float,
+                           funding_rate: float = 0.01) -> Dict[str, any]:
+    """
+    Analyze potential PnL from price manipulation with leveraged position
+    
+    Args:
+        manipulation_cost: Cost to manipulate price
+        price_impact_pct: Price impact achieved
+        leverage: Leverage used on position  
+        position_size_usd: Size of leveraged position
+        funding_rate: Funding rate per period
+        
+    Returns:
+        Dictionary with PnL analysis
+    """
+    # Position PnL from price movement
+    position_pnl = position_size_usd * (price_impact_pct / 100)
+    
+    # Cost components
+    margin_required = position_size_usd / leverage
+    funding_cost = position_size_usd * funding_rate
+    
+    # Net PnL calculation
+    gross_profit = position_pnl - manipulation_cost
+    net_profit = gross_profit - funding_cost
+    
+    # ROI calculations
+    total_capital_required = manipulation_cost + margin_required
+    roi_pct = (net_profit / total_capital_required) * 100 if total_capital_required > 0 else 0
+    
+    # Break-even analysis
+    breakeven_periods = manipulation_cost / (position_size_usd * funding_rate) if funding_cost > 0 else float('inf')
+    
+    return {
+        "manipulation_cost": manipulation_cost,
+        "position_size": position_size_usd,
+        "leverage": leverage,
+        "margin_required": margin_required,
+        "price_impact_pct": price_impact_pct,
+        "position_pnl": position_pnl,
+        "funding_cost_per_period": funding_cost,
+        "gross_profit": gross_profit,
+        "net_profit": net_profit,
+        "total_capital_required": total_capital_required,
+        "roi_pct": roi_pct,
+        "breakeven_periods": breakeven_periods,
+        "profitable": net_profit > 0
+    }
+
+
+def analyze_funding_manipulation(orderbook: Dict, position_imbalance_usd: float,
+                               current_funding: float, max_funding: float = 0.01) -> Dict[str, any]:
+    """
+    Analyze how position imbalance affects funding rates
+    
+    Args:
+        orderbook: Current orderbook
+        position_imbalance_usd: Size of position imbalance to create
+        current_funding: Current funding rate
+        max_funding: Maximum possible funding rate
+        
+    Returns:
+        Dictionary with funding impact analysis
+    """
+    mid_price = (orderbook['bids'][0][0] + orderbook['asks'][0][0]) / 2
+    
+    # Simple model: funding scales with imbalance
+    # In reality this is more complex and exchange-specific
+    total_liquidity = sum(p*s for p,s in orderbook['bids'][:20]) + sum(p*s for p,s in orderbook['asks'][:20])
+    imbalance_ratio = position_imbalance_usd / total_liquidity if total_liquidity > 0 else 0
+    
+    # Funding impact (simplified model)
+    funding_multiplier = 1 + (imbalance_ratio * 10)  # 10x sensitivity factor
+    new_funding = min(current_funding * funding_multiplier, max_funding)
+    funding_increase = new_funding - current_funding
+    
+    # Cost to maintain imbalance
+    daily_funding_cost = position_imbalance_usd * new_funding * 3  # 3 funding periods per day
+    
+    return {
+        "position_imbalance_usd": position_imbalance_usd,
+        "total_liquidity": total_liquidity,
+        "imbalance_ratio": imbalance_ratio * 100,
+        "current_funding_rate": current_funding,
+        "new_funding_rate": new_funding,
+        "funding_increase": funding_increase,
+        "daily_funding_cost": daily_funding_cost,
+        "funding_multiplier": funding_multiplier
+    }
+
+
+def analyze_oracle_defense(spot_venues: List[Dict], manipulation_impact_pct: float) -> Dict[str, any]:
+    """
+    Analyze how oracle design defends against manipulation
+    
+    Args:
+        spot_venues: List of spot venues with liquidity info
+        manipulation_impact_pct: Attempted manipulation percentage
+        
+    Returns:
+        Dictionary with oracle defense analysis
+    """
+    total_liquidity = sum(v.get('liquidity_usd', 0) for v in spot_venues)
+    venue_count = len(spot_venues)
+    
+    # Cost to manipulate all venues
+    total_manipulation_cost = 0
+    manipulatable_venues = 0
+    
+    for venue in spot_venues:
+        venue_liq = venue.get('liquidity_usd', 0)
+        venue_cost = venue_liq * (manipulation_impact_pct / 100)
+        
+        if venue_cost < venue_liq * 0.5:  # Can manipulate if cost < 50% of liquidity
+            total_manipulation_cost += venue_cost
+            manipulatable_venues += 1
+    
+    # Oracle resistance calculation
+    manipulation_difficulty = "high" if manipulatable_venues < venue_count/2 else "medium" if manipulatable_venues < venue_count else "low"
+    
+    # Time-weighted average price (TWAP) defense
+    twap_window = 300  # 5 minute TWAP
+    blocks_needed = twap_window / 12  # ~12 second blocks
+    sustained_cost = total_manipulation_cost * (blocks_needed / 10)  # Cost increases with time
+    
+    return {
+        "spot_venues": venue_count,
+        "total_spot_liquidity": total_liquidity,
+        "manipulatable_venues": manipulatable_venues,
+        "manipulation_cost_single": total_manipulation_cost / venue_count if venue_count > 0 else 0,
+        "manipulation_cost_all": total_manipulation_cost,
+        "twap_window_seconds": twap_window,
+        "sustained_manipulation_cost": sustained_cost,
+        "manipulation_difficulty": manipulation_difficulty,
+        "oracle_resistant": manipulatable_venues < venue_count / 2
+    }
+
+# Export all functions
+__all__ = [
+    'simulate_liquidation_cascade',
+    'simulate_liquidity_gap', 
+    'analyze_funding_stress',
+    'generate_scenario_report',
+    'liquidation_impact_scenario',
+    'gap_risk_scenario',
+    'volatility_shock_scenario',
+    'cascade_scenario',
+    'run_all_scenarios',
+    'summarize_scenarios',
+    'calculate_manipulation_cost',
+    'analyze_manipulation_pnl',
+    'analyze_funding_manipulation',
+    'analyze_oracle_defense'
+]
