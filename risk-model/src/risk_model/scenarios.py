@@ -352,7 +352,7 @@ def calculate_manipulation_cost(orderbook: Dict, target_impact_pct: float,
         # Sell through bids to push price down
         orders = orderbook.get('bids', [])
     
-    if not orders:
+    if len(orders) == 0:
         return {"error": "No orderbook data"}
     
     mid_price = (orderbook['bids'][0][0] + orderbook['asks'][0][0]) / 2

@@ -69,3 +69,6 @@ def get_markets_by_category(category: str, config_path: Optional[str] = None) ->
     """Get all markets in a specific category"""
     config = load_markets(config_path)
     return [market for market in config['markets'] if market.get('category') == category]
+
+# Alias for compatibility
+load_markets_config = load_markets

@@ -20,11 +20,11 @@ plt.rcParams.update({
     'axes.labelsize': 12,
     'axes.titlesize': 14,
     'axes.grid': True,
-    'axes.grid.alpha': 0.3,
     'axes.spines.top': False,
     'axes.spines.right': False,
     'grid.linestyle': '-',
     'grid.linewidth': 0.5,
+    'grid.alpha': 0.3,
     'lines.linewidth': 2,
     'legend.fontsize': 10,
     'legend.frameon': True,
@@ -496,3 +496,106 @@ def plot_oi_limits_table(limits_df: pd.DataFrame) -> Tuple[Figure, Axes]:
     ax.set_title('Recommended OI Limits by Market', fontsize=14, fontweight='bold', pad=20)
     
     return fig, ax
+
+def plot_risk_limits_comparison(risk_metrics: pd.DataFrame, 
+                              figsize: Tuple[float, float] = (16, 10)) -> Tuple[Figure, Axes]:
+    """
+    Create comprehensive risk limits comparison visualization
+    
+    Args:
+        risk_metrics: DataFrame with risk metrics and limits
+        figsize: Figure size
+        
+    Returns:
+        Figure and axes
+    """
+    fig = plt.figure(figsize=figsize)
+    
+    # Create grid for subplots
+    gs = fig.add_gridspec(2, 2, hspace=0.3, wspace=0.25)
+    ax1 = fig.add_subplot(gs[0, 0])
+    ax2 = fig.add_subplot(gs[0, 1])
+    ax3 = fig.add_subplot(gs[1, 0])
+    ax4 = fig.add_subplot(gs[1, 1])
+    
+    # Sort by risk score for better visualization
+    risk_sorted = risk_metrics.sort_values('risk_score')
+    top_markets = risk_sorted.head(10)
+    
+    # 1. Risk Score vs Position Limits
+    scatter = ax1.scatter(top_markets['risk_score'], 
+                         top_markets['position_limit_mm'],
+                         c=top_markets['liquidity_1pct_mm'],
+                         s=200, cmap='viridis', alpha=0.7, edgecolors='black')
+    
+    # Add market labels
+    for idx, row in top_markets.iterrows():
+        ax1.annotate(row['market'], 
+                    (row['risk_score'], row['position_limit_mm']),
+                    xytext=(5, 5), textcoords='offset points', fontsize=8)
+    
+    ax1.set_xlabel('Risk Score (1-5)')
+    ax1.set_ylabel('Position Limit ($MM)')
+    ax1.set_title('Risk Score vs Position Limits')
+    ax1.grid(True, alpha=0.3)
+    
+    # Add colorbar for liquidity
+    cbar = plt.colorbar(scatter, ax=ax1)
+    cbar.set_label('Liquidity @1% ($MM)')
+    
+    # 2. Liquidity vs Max OI
+    ax2.scatter(top_markets['liquidity_1pct_mm'],
+               top_markets['max_oi_mm'],
+               s=100, alpha=0.6, color=COLORS['primary'])
+    
+    # Add trend line
+    z = np.polyfit(top_markets['liquidity_1pct_mm'], top_markets['max_oi_mm'], 1)
+    p = np.poly1d(z)
+    x_trend = np.linspace(top_markets['liquidity_1pct_mm'].min(), 
+                         top_markets['liquidity_1pct_mm'].max(), 100)
+    ax2.plot(x_trend, p(x_trend), '--', color=COLORS['secondary'], alpha=0.8)
+    
+    ax2.set_xlabel('Liquidity @1% Impact ($MM)')
+    ax2.set_ylabel('Max Open Interest ($MM)')
+    ax2.set_title('Liquidity vs Maximum OI')
+    ax2.grid(True, alpha=0.3)
+    
+    # 3. Position Limits by Market (Bar chart)
+    markets_display = top_markets['market'].tolist()
+    y_pos = np.arange(len(markets_display))
+    
+    ax3.barh(y_pos, top_markets['position_limit_mm'], 
+             color=[COLORS['success'] if score <= 2 else 
+                   COLORS['warning'] if score <= 3 else 
+                   COLORS['danger'] 
+                   for score in top_markets['risk_score']])
+    
+    ax3.set_yticks(y_pos)
+    ax3.set_yticklabels(markets_display)
+    ax3.set_xlabel('Position Limit ($MM)')
+    ax3.set_title('Position Limits by Market')
+    ax3.grid(True, alpha=0.3, axis='x')
+    
+    # 4. Risk Metrics Heatmap
+    # Create subset of metrics for heatmap
+    heatmap_data = top_markets[['market', 'risk_score', 'liquidity_score', 
+                               'volatility_score', 'oracle_score']].set_index('market')
+    
+    # Normalize scores to 0-1 for better color mapping
+    heatmap_norm = (heatmap_data - 1) / 4  # Since scores are 1-5
+    
+    sns.heatmap(heatmap_norm.T, 
+                annot=heatmap_data.T,  # Show actual values
+                fmt='.0f',
+                cmap='RdYlGn_r',  # Reversed so red=bad, green=good
+                cbar_kws={'label': 'Risk Level'},
+                vmin=0, vmax=1,
+                ax=ax4)
+    
+    ax4.set_title('Risk Component Breakdown')
+    ax4.set_xlabel('Market')
+    
+    plt.suptitle('Market Risk Limits Analysis', fontsize=18, y=1.02)
+    plt.tight_layout()
+    
+    return fig, (ax1, ax2, ax3, ax4)

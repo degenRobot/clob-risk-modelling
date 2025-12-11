@@ -15,6 +15,14 @@ RISK_TO_MAX_OI = {
     5: 0.07,   # Very risky - 7%
 }
 
+# Impact to position mappings
+IMPACT_TO_MAX_POSITION = {
+    0.01: 0.5,   # 1% impact - 50% of max OI
+    0.02: 0.35,  # 2% impact - 35% of max OI
+    0.05: 0.20,  # 5% impact - 20% of max OI
+    0.10: 0.10,  # 10% impact - 10% of max OI
+}
+
 def liquidity_score(total_liq_usd: float) -> int:
     """
     Score liquidity depth from 1 (best) to 5 (worst)
@@ -247,3 +255,58 @@ def calculate_all_metrics(market_data: Dict) -> Dict[str, any]:
             "volume_24h_usd": volume_24h
         }
     }
+
+def calculate_position_limits(liquidity_usd: float, volatility: float, risk_score: int) -> Dict[str, float]:
+    """
+    Calculate position limits based on market conditions
+    
+    Args:
+        liquidity_usd: Available liquidity in USD
+        volatility: Market volatility (annualized)
+        risk_score: Composite risk score (1-5)
+        
+    Returns:
+        Dictionary with various position limits
+    """
+    # Base limit from liquidity
+    base_limit = liquidity_usd * 0.1  # 10% of liquidity as base
+    
+    # Volatility adjustment
+    if volatility < 0.5:  # < 50% annual vol
+        vol_multiplier = 1.0
+    elif volatility < 1.0:  # 50-100% vol
+        vol_multiplier = 0.75
+    else:  # > 100% vol
+        vol_multiplier = 0.5
+    
+    # Risk score adjustment
+    risk_multiplier = RISK_TO_MAX_OI.get(risk_score, 0.07)
+    
+    # Calculate final limits
+    position_limit = base_limit * vol_multiplier * risk_multiplier
+    
+    return {
+        "position_limit": position_limit,
+        "base_limit": base_limit,
+        "vol_adjustment": vol_multiplier,
+        "risk_adjustment": risk_multiplier,
+        "tier_limits": {
+            "retail": position_limit * 0.1,
+            "professional": position_limit * 0.25,
+            "market_maker": position_limit * 0.5,
+            "institutional": position_limit
+        }
+    }
+
+def calculate_max_oi(liquidity_usd: float, risk_score: int) -> float:
+    """
+    Calculate maximum open interest based on liquidity and risk
+    
+    Args:
+        liquidity_usd: Total available liquidity in USD
+        risk_score: Composite risk score (1-5)
+        
+    Returns:
+        Maximum recommended open interest in USD
+    """
+    return recommend_max_oi(liquidity_usd, risk_score)

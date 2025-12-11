@@ -126,12 +126,24 @@ def calculate_risk_metrics_all(market_data: Dict[str, Dict]) -> pd.DataFrame:
         # Calculate all metrics
         all_metrics = metrics.calculate_all_metrics(data)
         
+        # Get liquidity at 1% from data or estimate from total liquidity
+        liquidity_1pct = data.get('liquidity_1pct_usd', data.get('total_liquidity_usd', 0) * 0.1)
+        
         risk_rows.append({
-            'Market': name,
+            'market': name,
+            'Market': name,  # Keep for compatibility
+            'risk_score': all_metrics['scores']['composite'],
+            'liquidity_score': all_metrics['scores']['liquidity'],
+            'volatility_score': all_metrics['scores']['volatility'],
+            'oracle_score': all_metrics['scores']['oracle'],
             'Liquidity Score': all_metrics['scores']['liquidity'],
             'Volatility Score': all_metrics['scores']['volatility'],
             'Oracle Score': all_metrics['scores']['oracle'],
             'Composite Score': all_metrics['scores']['composite'],
+            'max_oi_mm': all_metrics['limits']['max_oi_usd'] / 1e6,
+            'position_limit_mm': all_metrics['limits']['max_position_usd'] / 1e6,
+            'liquidity_1pct_mm': liquidity_1pct / 1e6,
+            'realized_vol_30d': data.get('realized_vol', 0),
             'Max OI (USD)': all_metrics['limits']['max_oi_usd'],
             'Max Position (USD)': all_metrics['limits']['max_position_usd'],
             'OI/Volume Ratio': all_metrics['health']['oi_to_volume_ratio'],
@@ -187,15 +199,19 @@ def format_orderbook_summary(orderbook: Dict) -> Dict[str, any]:
     bids = orderbook['bids']
     asks = orderbook['asks']
     
+    # Check if we have valid orderbook data
+    has_bids = len(bids) > 0 if hasattr(bids, '__len__') else False
+    has_asks = len(asks) > 0 if hasattr(asks, '__len__') else False
+    
     return {
-        'bid_levels': len(bids),
-        'ask_levels': len(asks),
-        'best_bid': bids[0][0] if bids else 0,
-        'best_ask': asks[0][0] if asks else 0,
-        'spread': asks[0][0] - bids[0][0] if bids and asks else 0,
-        'spread_pct': ((asks[0][0] - bids[0][0]) / bids[0][0] * 100) if bids and asks and bids[0][0] > 0 else 0,
-        'bid_depth_10': sum(b[0] * b[1] for b in bids[:10]) if len(bids) >= 10 else 0,
-        'ask_depth_10': sum(a[0] * a[1] for a in asks[:10]) if len(asks) >= 10 else 0
+        'bid_levels': len(bids) if has_bids else 0,
+        'ask_levels': len(asks) if has_asks else 0,
+        'best_bid': float(bids[0][0]) if has_bids else 0,
+        'best_ask': float(asks[0][0]) if has_asks else 0,
+        'spread': float(asks[0][0] - bids[0][0]) if has_bids and has_asks else 0,
+        'spread_pct': float((asks[0][0] - bids[0][0]) / bids[0][0] * 100) if has_bids and has_asks and float(bids[0][0]) > 0 else 0,
+        'bid_depth_10': float(sum(b[0] * b[1] for b in bids[:10])) if has_bids and len(bids) >= 10 else 0,
+        'ask_depth_10': float(sum(a[0] * a[1] for a in asks[:10])) if has_asks and len(asks) >= 10 else 0
     }
 
 def generate_executive_summary(market_data: Dict[str, Dict]) -> str:
