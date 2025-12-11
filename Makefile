@@ -1,10 +1,11 @@
-.PHONY: help setup install notebook test clean poetry-fix verify fetch-data reports lint check
+.PHONY: help setup install notebook test clean poetry-fix verify fetch-data reports lint check run-notebooks
 
 # Default target
 help:
 	@echo "CLOB Risk Modelling - Available commands:"
 	@echo "  make setup          - Configure Poetry and install dependencies"
 	@echo "  make notebook       - Launch Jupyter notebook server"
+	@echo "  make run-notebooks  - Execute all notebooks with current data"
 	@echo "  make fetch-data     - Fetch latest market data from APIs"
 	@echo "  make reports        - Generate risk reports from notebooks"
 	@echo "  make test           - Run test suite"
@@ -132,3 +133,19 @@ verify:
 	@poetry run jupyter kernelspec list | grep clob-risk || echo "⚠️  CLOB Risk kernel not installed"
 	@echo ""
 	@echo "✅ Verification complete!"
+
+# Run all notebooks in sequence
+run-notebooks:
+	@echo "🚀 Running all risk model notebooks..."
+	@mkdir -p risk-model/notebooks/executed
+	@echo "📊 Executing data exploration notebook..."
+	@cd risk-model && poetry run jupyter nbconvert --to notebook --execute notebooks/00_data_exploration.ipynb --output executed/00_data_exploration_$(shell date +%Y%m%d).ipynb
+	@echo "📊 Executing market risk limits notebook..."
+	@cd risk-model && poetry run jupyter nbconvert --to notebook --execute notebooks/01_market_risk_limits.ipynb --output executed/01_market_risk_limits_$(shell date +%Y%m%d).ipynb
+	@echo "📊 Executing stress testing notebook..."
+	@cd risk-model && poetry run jupyter nbconvert --to notebook --execute notebooks/02_stress_testing.ipynb --output executed/02_stress_testing_$(shell date +%Y%m%d).ipynb
+	@echo "📊 Executing manipulation simulation notebook..."
+	@cd risk-model && poetry run jupyter nbconvert --to notebook --execute notebooks/03_manipulation_sims.ipynb --output executed/03_manipulation_sims_$(shell date +%Y%m%d).ipynb
+	@echo "📊 Executing risk summary notebook..."
+	@cd risk-model && poetry run jupyter nbconvert --to notebook --execute notebooks/risk_summary.ipynb --output executed/risk_summary_$(shell date +%Y%m%d).ipynb
+	@echo "✅ All notebooks executed successfully! Results in risk-model/notebooks/executed/"
