@@ -3,11 +3,13 @@
 import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib import rcParams
+import warnings
+warnings.filterwarnings('ignore')
 
 # Professional chart styling configuration
 CHART_STYLE = {
-    'figure.figsize': (12, 8),
-    'font.size': 11,
+    'figure.figsize': (12, 6),
+    'font.size': 10,
     'font.family': 'sans-serif',
     'axes.labelsize': 12,
     'axes.titlesize': 14,
@@ -34,6 +36,10 @@ CHART_STYLE = {
     'xtick.labelsize': 10,
     'ytick.labelsize': 10,
 }
+
+# Line styles for profit analysis charts
+LINE_STYLES = ['-', '--', '-.', ':', '-']
+MARKERS = ['o', 's', '^', 'D', 'v']
 
 # Color palettes
 COLORS = {
@@ -170,6 +176,88 @@ CHART_TEMPLATES = {
     }
 }
 
+# Synthetic orderbook generation
+def create_synthetic_orderbook(
+    mid_price: float = 100.0,
+    depth_per_level_usd: float = 10_000,
+    num_levels: int = 100,
+    depth_decay: float = 0.95,
+    spread_bps: float = 10
+) -> dict:
+    """Create a realistic synthetic orderbook."""
+    bids, asks = [], []
+    half_spread = mid_price * spread_bps / 20000
+    
+    for i in range(num_levels):
+        # Bid side
+        bid_price = (mid_price - half_spread) * (1 - 0.001 * i)
+        bid_depth = depth_per_level_usd * (depth_decay ** i)
+        bids.append([bid_price, bid_depth / bid_price])
+        
+        # Ask side
+        ask_price = (mid_price + half_spread) * (1 + 0.001 * i)
+        ask_depth = depth_per_level_usd * (depth_decay ** i)
+        asks.append([ask_price, ask_depth / ask_price])
+    
+    return {'bids': bids, 'asks': asks, 'mid_price': mid_price}
+
+# Manipulation calculations
+def calculate_manipulation_cost(orderbook: dict, target_impact_pct: float) -> float:
+    """Calculate cost to move price by target percentage."""
+    mid_price = orderbook['mid_price']
+    target_price = mid_price * (1 + target_impact_pct / 100)
+    
+    total_cost = 0
+    for price, size in orderbook['asks']:
+        if price > target_price:
+            break
+        total_cost += price * size
+    
+    return total_cost
+
+def calculate_net_profit(manipulation_cost: float, position_size: float, 
+                        price_impact_pct: float, leverage: float = 20) -> float:
+    """Calculate attacker's net profit."""
+    position_pnl = position_size * (price_impact_pct / 100)
+    funding_cost = position_size * 0.0001  # 0.01% funding
+    return position_pnl - manipulation_cost - funding_cost
+
+# Safe OI calculation functions
+def find_breakeven_position(manipulation_cost: float, price_impact_pct: float) -> float:
+    """Find position size where profit = 0."""
+    return manipulation_cost / (price_impact_pct / 100)
+
+def calculate_safe_oi(orderbook: dict, target_impact: float, 
+                     safety_factor: float = 2.0) -> float:
+    """Calculate safe OI limit."""
+    manip_cost = calculate_manipulation_cost(orderbook, target_impact)
+    breakeven = find_breakeven_position(manip_cost, target_impact)
+    return breakeven / safety_factor
+
+# Heatmap configuration
+HEATMAP_CONFIG = {
+    'figsize': (12, 8),
+    'cmap': 'RdYlGn',
+    'interpolation': 'bilinear',
+    'profit_levels': [-2, -1, 1, 2, 5],
+    'contour_colors': {
+        'breakeven': 'black',
+        'profit': 'white'
+    },
+    'annotations': {
+        'profitable': {
+            'position': (10, 40),  # top left
+            'text': 'PROFITABLE\nZONE',
+            'fontsize': 12
+        },
+        'unprofitable': {
+            'position': (40, 10),  # bottom right
+            'text': 'UNPROFITABLE\nZONE',
+            'fontsize': 12
+        }
+    }
+}
+
 # Export all configuration
 __all__ = [
     'CHART_STYLE',
@@ -177,10 +265,18 @@ __all__ = [
     'RISK_COLORS',
     'MARKET_COLORS',
     'CHART_TEMPLATES',
+    'LINE_STYLES',
+    'MARKERS',
+    'HEATMAP_CONFIG',
     'setup_chart_style',
     'get_market_color',
     'get_risk_color',
     'format_axis_labels',
     'add_value_labels',
-    'create_figure_with_title'
+    'create_figure_with_title',
+    'create_synthetic_orderbook',
+    'calculate_manipulation_cost',
+    'calculate_net_profit',
+    'find_breakeven_position',
+    'calculate_safe_oi'
 ]
