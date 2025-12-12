@@ -43,19 +43,40 @@ def simulate_liquidity_gap(orderbook: Dict, gap_size: float, direction: str = 'd
     if not orderbook or 'bids' not in orderbook or 'asks' not in orderbook:
         return {"error": "Invalid orderbook data"}
     
+    # Ensure we have valid orderbook data
+    if len(orderbook['bids']) == 0 or len(orderbook['asks']) == 0:
+        return {
+            "gap_size": gap_size,
+            "direction": direction,
+            "unfilled_orders": 0,
+            "unfilled_volume": 0,
+            "unfilled_volume_pct": 0,
+            "gap_price": 0,
+            "mid_price": 0
+        }
+    
     orders = orderbook['bids'] if direction == 'down' else orderbook['asks']
     mid_price = (orderbook['bids'][0][0] + orderbook['asks'][0][0]) / 2
     gap_price = mid_price * (1 - gap_size) if direction == 'down' else mid_price * (1 + gap_size)
     
     unfilled_orders = 0
+    unfilled_volume = 0
+    total_volume = 0
+    
     for price, size in orders:
+        total_volume += price * size
         if (direction == 'down' and price > gap_price) or (direction == 'up' and price < gap_price):
             unfilled_orders += 1
+            unfilled_volume += price * size
+    
+    unfilled_volume_pct = (unfilled_volume / total_volume * 100) if total_volume > 0 else 0
     
     return {
         "gap_size": gap_size,
         "direction": direction,
         "unfilled_orders": unfilled_orders,
+        "unfilled_volume": unfilled_volume,
+        "unfilled_volume_pct": unfilled_volume_pct,
         "gap_price": gap_price,
         "mid_price": mid_price
     }
@@ -524,6 +545,301 @@ def analyze_oracle_defense(spot_venues: List[Dict], manipulation_impact_pct: flo
         "oracle_resistant": manipulatable_venues < venue_count / 2
     }
 
+
+def calculate_amm_manipulation_cost(pool_reserves: Tuple[float, float], target_impact_pct: float, 
+                                   fee: float = 0.003) -> Dict[str, any]:
+    """
+    Calculate cost to manipulate AMM (constant product) price by target percentage
+    
+    Args:
+        pool_reserves: Tuple of (token0_reserve, token1_reserve) 
+        target_impact_pct: Desired price impact percentage
+        fee: AMM trading fee (default 0.3%)
+        
+    Returns:
+        Dictionary with AMM manipulation analysis
+    """
+    x, y = pool_reserves
+    k = x * y  # constant product
+    current_price = y / x  # price of token0 in terms of token1
+    
+    # Calculate new reserves after price impact
+    # New price = current_price * (1 + impact)
+    target_price = current_price * (1 + target_impact_pct / 100)
+    
+    # For constant product: x_new * y_new = k and y_new/x_new = target_price
+    # Solving: x_new = sqrt(k / target_price)
+    x_new = np.sqrt(k / target_price)
+    y_new = k / x_new
+    
+    # Amount needed to trade
+    amount_in = x - x_new  # amount of token0 to buy
+    amount_out = y_new - y  # amount of token1 received
+    
+    # Cost including fees
+    gross_cost = abs(amount_out)
+    fee_cost = gross_cost * fee
+    total_cost = gross_cost + fee_cost
+    
+    # Slippage calculation
+    avg_price = amount_out / amount_in if amount_in != 0 else current_price
+    slippage = abs((avg_price - current_price) / current_price) * 100
+    
+    return {
+        "mechanism": "AMM",
+        "target_impact_pct": target_impact_pct,
+        "actual_impact_pct": target_impact_pct,  # AMM gives exact impact
+        "manipulation_cost_usd": total_cost,
+        "gross_cost": gross_cost,
+        "fee_cost": fee_cost,
+        "amount_traded": abs(amount_in),
+        "current_price": current_price,
+        "target_price": target_price,
+        "avg_execution_price": avg_price,
+        "slippage_pct": slippage,
+        "pool_tvl": (x * current_price + y) if current_price > 0 else 0
+    }
+
+
+def compare_amm_clob_manipulation(clob_orderbook: Dict, amm_reserves: Tuple[float, float],
+                                  target_impact_pct: float, amm_fee: float = 0.003) -> Dict[str, any]:
+    """
+    Compare manipulation costs between AMM and CLOB
+    
+    Args:
+        clob_orderbook: CLOB orderbook data
+        amm_reserves: AMM pool reserves (token0, token1)
+        target_impact_pct: Target price impact
+        amm_fee: AMM trading fee
+        
+    Returns:
+        Comparison of manipulation costs and characteristics
+    """
+    # Calculate CLOB manipulation cost
+    clob_result = calculate_manipulation_cost(clob_orderbook, target_impact_pct, 'up')
+    
+    # Calculate AMM manipulation cost
+    amm_result = calculate_amm_manipulation_cost(amm_reserves, target_impact_pct, amm_fee)
+    
+    # Cost comparison
+    cost_ratio = clob_result['manipulation_cost_usd'] / amm_result['manipulation_cost_usd'] if amm_result['manipulation_cost_usd'] > 0 else float('inf')
+    
+    # Recovery analysis
+    clob_recovery_time = 60  # CLOB can recover in ~1 minute with new orders
+    amm_recovery_time = 0    # AMM price recovers instantly with arbitrage
+    
+    return {
+        "target_impact_pct": target_impact_pct,
+        "clob_cost": clob_result['manipulation_cost_usd'],
+        "amm_cost": amm_result['manipulation_cost_usd'],
+        "cost_ratio": cost_ratio,
+        "cheaper_mechanism": "AMM" if amm_result['manipulation_cost_usd'] < clob_result['manipulation_cost_usd'] else "CLOB",
+        "clob_orders_consumed": clob_result.get('orders_consumed', 0),
+        "clob_avg_price": clob_result.get('avg_execution_price', 0),
+        "amm_slippage_pct": amm_result['slippage_pct'],
+        "clob_recovery_seconds": clob_recovery_time,
+        "amm_recovery_seconds": amm_recovery_time,
+        "clob_can_walk_price": True,  # Can push price gradually
+        "amm_can_walk_price": False,   # Atomic execution only
+        "clob_front_run_risk": "high",
+        "amm_front_run_risk": "medium",  # MEV bots but no order preview
+    }
+
+
+def analyze_amm_clob_arbitrage(clob_price: float, amm_price: float, clob_depth: Dict,
+                               amm_reserves: Tuple[float, float], arb_capital: float) -> Dict[str, any]:
+    """
+    Analyze arbitrage opportunities between AMM and CLOB
+    
+    Args:
+        clob_price: Current CLOB mid price
+        amm_price: Current AMM price
+        clob_depth: CLOB orderbook depth info
+        amm_reserves: AMM pool reserves
+        arb_capital: Available arbitrage capital
+        
+    Returns:
+        Arbitrage analysis
+    """
+    price_diff_pct = abs((clob_price - amm_price) / clob_price) * 100
+    
+    # Determine arbitrage direction
+    if abs(price_diff_pct) < 0.1:  # Less than 0.1% difference
+        return {
+            "profitable": False,
+            "price_diff_pct": price_diff_pct,
+            "reason": "Price difference too small"
+        }
+    
+    if clob_price > amm_price:
+        # Buy on AMM, sell on CLOB
+        direction = "buy_amm_sell_clob"
+        
+        # Calculate AMM trade
+        x, y = amm_reserves
+        k = x * y
+        
+        # Binary search for optimal trade size
+        left, right = 0, min(arb_capital / amm_price, x * 0.3)  # Max 30% of pool
+        
+        while right - left > 0.01:
+            mid = (left + right) / 2
+            
+            # AMM execution
+            x_new = x - mid
+            y_new = k / x_new
+            amm_cost = y_new - y
+            amm_avg_price = amm_cost / mid if mid > 0 else amm_price
+            
+            # CLOB execution (simplified)
+            clob_revenue = mid * clob_price * 0.95  # Assume 5% slippage
+            
+            profit = clob_revenue - amm_cost
+            
+            if profit > 0:
+                left = mid
+            else:
+                right = mid
+        
+        optimal_size = left
+        
+    else:
+        # Buy on CLOB, sell on AMM
+        direction = "buy_clob_sell_amm"
+        optimal_size = min(arb_capital / clob_price, amm_reserves[0] * 0.1)
+    
+    return {
+        "profitable": price_diff_pct > 0.5,  # Need >0.5% for fees
+        "price_diff_pct": price_diff_pct,
+        "arbitrage_direction": direction,
+        "optimal_trade_size": optimal_size,
+        "estimated_profit": optimal_size * clob_price * (price_diff_pct / 100) * 0.7,  # 70% capture
+        "price_convergence_expected": True,
+        "convergence_mechanism": "arbitrageur trades"
+    }
+
+
+def analyze_market_defense_mechanisms(market_type: str, liquidity_usd: float,
+                                     volatility: float) -> Dict[str, any]:
+    """
+    Analyze different market defense mechanisms against manipulation
+    
+    Args:
+        market_type: 'CLOB' or 'AMM'
+        liquidity_usd: Total market liquidity
+        volatility: Market volatility
+        
+    Returns:
+        Analysis of defense mechanisms
+    """
+    base_score = 50  # Start at neutral
+    
+    if market_type == "CLOB":
+        defenses = {
+            "market_makers": {
+                "present": True,
+                "effectiveness": "high" if liquidity_usd > 10e6 else "medium",
+                "score_impact": +20 if liquidity_usd > 10e6 else +10
+            },
+            "order_replenishment": {
+                "speed": "fast",
+                "typical_seconds": 30,
+                "score_impact": +15
+            },
+            "price_discovery": {
+                "mechanism": "continuous_limit_orders",
+                "efficiency": "high",
+                "score_impact": +10
+            },
+            "manipulation_detection": {
+                "possible": True,
+                "method": "order_pattern_analysis",
+                "score_impact": +5
+            },
+            "regulatory_oversight": {
+                "level": "high",
+                "score_impact": +10
+            }
+        }
+        
+        vulnerabilities = {
+            "spoofing": {
+                "risk": "medium",
+                "score_impact": -10
+            },
+            "wash_trading": {
+                "risk": "low" if liquidity_usd > 50e6 else "medium",
+                "score_impact": -5 if liquidity_usd > 50e6 else -10
+            },
+            "stop_hunting": {
+                "risk": "high" if volatility > 1.0 else "medium",
+                "score_impact": -15 if volatility > 1.0 else -10
+            }
+        }
+        
+    else:  # AMM
+        defenses = {
+            "arbitrageurs": {
+                "present": True,
+                "effectiveness": "very_high",
+                "response_time": "<1 block",
+                "score_impact": +25
+            },
+            "mathematical_pricing": {
+                "mechanism": "constant_product",
+                "tamper_proof": True,
+                "score_impact": +20
+            },
+            "no_order_preview": {
+                "benefit": "no_spoofing_possible",
+                "score_impact": +15
+            },
+            "composability": {
+                "cross_venue_arb": True,
+                "score_impact": +10
+            },
+            "slippage_protection": {
+                "built_in": True,
+                "score_impact": +5
+            }
+        }
+        
+        vulnerabilities = {
+            "sandwich_attacks": {
+                "risk": "high",
+                "score_impact": -20
+            },
+            "impermanent_loss": {
+                "risk": "medium",
+                "affects_lps": True,
+                "score_impact": -10
+            },
+            "oracle_manipulation": {
+                "risk": "medium" if liquidity_usd < 5e6 else "low",
+                "score_impact": -15 if liquidity_usd < 5e6 else -5
+            }
+        }
+    
+    # Calculate total score
+    total_score = base_score
+    
+    for defense in defenses.values():
+        total_score += defense.get("score_impact", 0)
+        
+    for vulnerability in vulnerabilities.values():
+        total_score += vulnerability.get("score_impact", 0)
+    
+    return {
+        "market_type": market_type,
+        "defense_score": total_score,
+        "defense_rating": "strong" if total_score > 70 else "moderate" if total_score > 40 else "weak",
+        "defenses": defenses,
+        "vulnerabilities": vulnerabilities,
+        "key_advantages": list(defenses.keys())[:3],
+        "key_risks": list(vulnerabilities.keys())[:2],
+        "recommendation": "suitable_for_derivatives" if total_score > 60 else "needs_additional_safeguards"
+    }
+
 # Export all functions
 __all__ = [
     'simulate_liquidation_cascade',
@@ -539,5 +855,9 @@ __all__ = [
     'calculate_manipulation_cost',
     'analyze_manipulation_pnl',
     'analyze_funding_manipulation',
-    'analyze_oracle_defense'
+    'analyze_oracle_defense',
+    'calculate_amm_manipulation_cost',
+    'compare_amm_clob_manipulation',
+    'analyze_amm_clob_arbitrage',
+    'analyze_market_defense_mechanisms'
 ]
