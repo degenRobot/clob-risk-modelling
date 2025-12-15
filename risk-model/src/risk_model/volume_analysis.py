@@ -30,8 +30,12 @@ def analyze_volume_patterns(klines_df: pd.DataFrame,
         results[col_name] = results['volume'].rolling(window).mean()
         
     # Volume profile (distribution by price level)
-    price_bins = pd.qcut(klines_df['close'], q=20)
-    volume_profile = klines_df.groupby(price_bins)['volume'].sum()
+    try:
+        price_bins = pd.qcut(klines_df['close'], q=20, duplicates='drop')
+        volume_profile = klines_df.groupby(price_bins, observed=False)['volume'].sum()
+    except (ValueError, TypeError):
+        # Handle case where all prices are NaN or insufficient unique values
+        volume_profile = pd.Series([], dtype=float)
     
     # Volume spikes
     vol_mean = results['volume'].mean()

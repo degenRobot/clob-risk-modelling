@@ -82,6 +82,7 @@ def fetch_market_data(markets: List[Dict], lookback_days: int = 30,
             
         except Exception as e:
             logger.error(f"Failed to fetch data for {market['name']}: {e}")
+            print(f"Failed to fetch data for {market['name']}: {e}")
             continue
             
     return market_data

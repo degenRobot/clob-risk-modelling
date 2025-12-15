@@ -124,7 +124,7 @@ def realized_vol(klines_df: pd.DataFrame, window: int = 30*24,
         Annualized realized volatility (0-1 scale)
     """
     if len(klines_df) < window:
-        logger.warning(f"Insufficient data: {len(klines_df)} < {window}")
+        # Silently adjust window to available data
         window = len(klines_df)
     
     # Calculate log returns

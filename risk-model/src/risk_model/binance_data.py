@@ -54,7 +54,16 @@ class BinanceDataFetcher:
         
         data = self._make_request(url, params)
         
-        # Convert to more usable format
+        # Convert to more usable format with error handling
+        if "bids" not in data or "asks" not in data:
+            logger.error(f"Invalid orderbook response for {symbol}: missing bids/asks")
+            return {
+                "bids": np.array([]),
+                "asks": np.array([]),
+                "lastUpdateId": data.get("lastUpdateId", 0),
+                "timestamp": datetime.now()
+            }
+            
         return {
             "bids": np.array(data["bids"], dtype=float),
             "asks": np.array(data["asks"], dtype=float),
