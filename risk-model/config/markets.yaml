@@ -38,14 +38,14 @@ markets:
     oracle: "chainlink"
     max_leverage: 10
     
-  - name: MATIC-PERP
-    binance_symbol_spot: MATICUSDT
-    binance_symbol_perp: MATICUSDT
-    uniswap_pool_id: "0x290a6a7460b308ee3f19023d2d00de604bcf5b42"  # MATIC/ETH 0.3% v3
-    uniswap_version: 3
-    category: "alt"
-    oracle: "chainlink"
-    max_leverage: 10
+  # - name: MATIC-PERP
+  #   binance_symbol_spot: MATICUSDT
+  #   binance_symbol_perp: MATICUSDT
+  #   uniswap_pool_id: "0x290a6a7460b308ee3f19023d2d00de604bcf5b42"  # MATIC/ETH 0.3% v3
+  #   uniswap_version: 3
+  #   category: "alt"
+  #   oracle: "chainlink"
+  #   max_leverage: 10
 
 # Risk parameters
 risk_parameters:
