@@ -7,35 +7,61 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def simulate_liquidation_cascade(orderbook: Dict, liquidation_pct: float = 0.2) -> Dict[str, any]:
-    """Simulate liquidation cascade impact"""
+def simulate_liquidation_cascade(orderbook: Dict, liquidation_usd: float = 10_000_000) -> Dict[str, any]:
+    """
+    Simulate liquidation cascade impact with fixed USD amount.
+
+    Args:
+        orderbook: Orderbook with bids/asks arrays
+        liquidation_usd: Amount to liquidate in USD (default $10M)
+
+    Returns:
+        Dict with price_impact_pct, cost_usd, levels_consumed, avg_price
+    """
     if not orderbook or 'bids' not in orderbook or 'asks' not in orderbook:
         return {"error": "Invalid orderbook data"}
-    
+
+    if len(orderbook['bids']) == 0 or len(orderbook['asks']) == 0:
+        return {"error": "Empty orderbook"}
+
     mid_price = (orderbook['bids'][0][0] + orderbook['asks'][0][0]) / 2
-    total_bid_depth = sum(p * s for p, s in orderbook['bids'][:50])
-    
+    total_bid_depth = sum(p * s for p, s in orderbook['bids'][:100])
+
     # Simulate selling pressure from liquidations
-    liquidation_size = total_bid_depth * liquidation_pct
-    price_impact = 0
-    remaining_size = liquidation_size
-    
+    remaining_usd = liquidation_usd
+    levels_consumed = 0
+    total_base_sold = 0
+    total_quote_received = 0
+    final_price = mid_price
+
     for price, size in orderbook['bids']:
-        if remaining_size <= 0:
+        if remaining_usd <= 0:
             break
-        filled = min(remaining_size, size * price)
-        remaining_size -= filled
-        price_impact = (mid_price - price) / mid_price * 100
-    
-    # Recovery calculation
-    recovery_bps = price_impact * 10  # Simplified recovery metric
-    
+        level_value = price * size
+        filled_usd = min(remaining_usd, level_value)
+        filled_base = filled_usd / price
+
+        total_base_sold += filled_base
+        total_quote_received += filled_usd
+        remaining_usd -= filled_usd
+        levels_consumed += 1
+        final_price = price
+
+    # Calculate metrics
+    avg_exec_price = total_quote_received / total_base_sold if total_base_sold > 0 else mid_price
+    price_impact_pct = ((mid_price - final_price) / mid_price) * 100
+    slippage_pct = ((mid_price - avg_exec_price) / mid_price) * 100
+
     return {
-        "liquidation_pct": liquidation_pct * 100,
-        "price_impact_pct": price_impact,
-        "max_price_drop": price_impact,
-        "recovery_bps": recovery_bps,
-        "market_depth_1pct": total_bid_depth / 100
+        "liquidation_usd": liquidation_usd,
+        "price_impact_pct": round(price_impact_pct, 4),
+        "slippage_pct": round(slippage_pct, 4),
+        "levels_consumed": levels_consumed,
+        "avg_exec_price": round(avg_exec_price, 2),
+        "final_price": round(final_price, 2),
+        "mid_price": round(mid_price, 2),
+        "total_bid_depth_usd": round(total_bid_depth, 0),
+        "pct_of_depth_consumed": round((liquidation_usd / total_bid_depth) * 100, 2) if total_bid_depth > 0 else 0
     }
 
 def simulate_liquidity_gap(orderbook: Dict, gap_size: float, direction: str = 'down') -> Dict[str, any]:

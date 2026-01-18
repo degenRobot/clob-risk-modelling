@@ -1,1 +1,2 @@
 *.pyc
+risk-model/data/spot_klines/*

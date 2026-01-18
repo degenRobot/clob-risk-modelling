@@ -10,7 +10,25 @@ Features:
 Usage:
     poetry run python scripts/download_klines.py --symbol BTCUSDT --days 7
     poetry run python scripts/download_klines.py --symbol BTCUSDT --days 365
+    poetry run python scripts/download_klines.py --all --days 365
 """
+
+# Assets to analyze for RISEx
+# Map short names to Binance symbols
+ASSET_SYMBOLS = {
+    "BTC": "BTCUSDT",
+    "ETH": "ETHUSDT",
+    "SOL": "SOLUSDT",
+    "XRP": "XRPUSDT",
+    "ZEC": "ZECUSDT",
+    "BNB": "BNBUSDT",
+    "HYPE": "HYPEUSDT",  # Hyperliquid token
+    "ASTR": "ASTRUSDT",  # Astar (if ASTER means this)
+    "PEPE": "PEPEUSDT",  # Meme coin
+}
+
+# Default list for --all flag
+ALL_SYMBOLS = list(ASSET_SYMBOLS.values())
 
 import argparse
 import csv
@@ -211,13 +229,34 @@ class KlineDownloader:
 
 def main():
     parser = argparse.ArgumentParser(description="Download Binance klines (memory-efficient)")
-    parser.add_argument("--symbol", "-s", nargs="+", default=["BTCUSDT"])
-    parser.add_argument("--days", "-d", type=int, default=7)
+    parser.add_argument("--symbol", "-s", nargs="+", default=None,
+                        help="Symbols to download (e.g., BTCUSDT ETHUSDT)")
+    parser.add_argument("--all", "-a", action="store_true",
+                        help=f"Download all configured symbols: {', '.join(ALL_SYMBOLS)}")
+    parser.add_argument("--days", "-d", type=int, default=365,
+                        help="Number of days to download (default: 365)")
     parser.add_argument("--interval", "-i", default="1s")
     parser.add_argument("--output-dir", "-o", default="data/spot_klines")
     parser.add_argument("--rate-limit", "-r", type=float, default=0.05)
+    parser.add_argument("--list", "-l", action="store_true",
+                        help="List available symbols and exit")
 
     args = parser.parse_args()
+
+    # List mode
+    if args.list:
+        print("Available symbols:")
+        for short, full in ASSET_SYMBOLS.items():
+            print(f"  {short:6} -> {full}")
+        return
+
+    # Determine symbols to download
+    if args.all:
+        symbols = ALL_SYMBOLS
+    elif args.symbol:
+        symbols = args.symbol
+    else:
+        symbols = ["BTCUSDT"]
 
     downloader = KlineDownloader(
         output_dir=args.output_dir,
@@ -225,14 +264,18 @@ def main():
     )
 
     print(f"Binance Kline Downloader (Memory-Efficient)", flush=True)
-    print(f"Symbols: {', '.join(args.symbol)} | Days: {args.days}", flush=True)
+    print(f"Symbols: {', '.join(symbols)} | Days: {args.days}", flush=True)
 
-    for symbol in args.symbol:
+    for symbol in symbols:
         try:
             downloader.download(symbol=symbol, interval=args.interval, days=args.days)
         except KeyboardInterrupt:
             print(f"\nStopped. Run again to resume.", flush=True)
             sys.exit(1)
+        except Exception as e:
+            print(f"Error downloading {symbol}: {e}", flush=True)
+            print(f"Continuing with next symbol...", flush=True)
+            continue
 
 
 if __name__ == "__main__":
